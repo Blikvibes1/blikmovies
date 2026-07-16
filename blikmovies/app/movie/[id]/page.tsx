@@ -2,11 +2,19 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Play, Download, ArrowLeft, Star, Heart, HeartOff } from 'lucide-react';
+import { Play, Download, ArrowLeft, Star, Heart, HeartOff, X } from 'lucide-react';
 import Link from 'next/link';
-import ReactPlayer from 'react-player';
 import { supabase } from '@/lib/supabase';
 import type { Movie } from '@/lib/supabase';
+
+// Streaming embed — uses the movie's TMDB ID for real content
+function embedUrl(tmdbId: number) {
+  return `https://vidsrc.to/embed/movie/${tmdbId}`;
+}
+
+function downloadUrl(tmdbId: number) {
+  return `https://dl.vidsrc.vip/movie/${tmdbId}`;
+}
 
 export default function MoviePage() {
   const params = useParams();
@@ -22,10 +30,8 @@ export default function MoviePage() {
 
   useEffect(() => {
     async function load() {
-      // Try numeric id (Supabase row id) first, then tmdb_id
       const numId = Number(id);
 
-      // Fetch main movie
       let movieData: Movie | null = null;
       const { data: byId } = await supabase
         .from('movies')
@@ -45,7 +51,6 @@ export default function MoviePage() {
       }
 
       if (!movieData) {
-        // Fallback: fetch from TMDB API
         try {
           const res = await fetch(`/api/tmdb/movie/${numId}`);
           if (res.ok) {
@@ -57,7 +62,6 @@ export default function MoviePage() {
 
       setMovie(movieData);
 
-      // Fetch similar movies from Supabase (exclude current)
       if (movieData) {
         const { data: similarData } = await supabase
           .from('movies')
@@ -68,7 +72,6 @@ export default function MoviePage() {
         setSimilar((similarData ?? []) as Movie[]);
       }
 
-      // Check watchlist status
       const { data: { session } } = await supabase.auth.getSession();
       if (session && movieData) {
         setUserId(session.user.id);
@@ -107,6 +110,12 @@ export default function MoviePage() {
     setWatchlistLoading(false);
   }
 
+  // Lock body scroll when player is open
+  useEffect(() => {
+    document.body.style.overflow = playing ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [playing]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
@@ -126,6 +135,8 @@ export default function MoviePage() {
     );
   }
 
+  const tmdbId = movie.tmdb_id ?? movie.id;
+
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       {/* Hero */}
@@ -137,7 +148,6 @@ export default function MoviePage() {
         />
         <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/60 to-transparent" />
 
-        {/* Back button */}
         <Link
           href="/"
           className="absolute top-6 left-6 flex items-center gap-2 text-sm bg-black/50 hover:bg-black/70 px-4 py-2 rounded-full backdrop-blur transition"
@@ -145,7 +155,6 @@ export default function MoviePage() {
           <ArrowLeft className="w-4 h-4" /> Back
         </Link>
 
-        {/* Movie info */}
         <div className="absolute bottom-10 left-10 right-10">
           <div className="flex items-center gap-3 mb-4">
             <div className="flex items-center gap-1.5 bg-yellow-500/20 text-yellow-400 text-sm px-3 py-1 rounded-full">
@@ -165,9 +174,14 @@ export default function MoviePage() {
             >
               <Play className="fill-current w-5 h-5" /> WATCH NOW
             </button>
-            <button className="flex items-center gap-3 border-2 border-white/70 px-8 py-4 rounded-2xl font-semibold hover:bg-white hover:text-black transition">
+            <a
+              href={downloadUrl(tmdbId)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 border-2 border-white/70 px-8 py-4 rounded-2xl font-semibold hover:bg-white hover:text-black transition"
+            >
               <Download className="w-5 h-5" /> DOWNLOAD
-            </button>
+            </a>
             {userId ? (
               <button
                 onClick={toggleWatchlist}
@@ -193,22 +207,29 @@ export default function MoviePage() {
         </div>
       </div>
 
-      {/* Video Player Modal */}
+      {/* Full-screen Video Player */}
       {playing && (
-        <div className="fixed inset-0 bg-black z-50 flex items-center justify-center">
-          <div className="relative w-full max-w-5xl aspect-video bg-black">
+        <div className="fixed inset-0 bg-black z-50 flex flex-col">
+          {/* Top bar */}
+          <div className="flex items-center justify-between px-6 py-4 bg-black/80 shrink-0">
+            <span className="text-white font-semibold text-lg truncate">{movie.title}</span>
             <button
               onClick={() => setPlaying(false)}
-              className="absolute -top-12 right-0 text-white z-50 text-xl hover:text-rose-400 transition"
+              className="flex items-center gap-2 text-white hover:text-rose-400 transition text-sm font-medium"
             >
-              ✕ CLOSE
+              <X className="w-5 h-5" /> Close
             </button>
-            <ReactPlayer
-              url="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
-              playing={true}
-              controls={true}
-              width="100%"
-              height="100%"
+          </div>
+
+          {/* Embed iframe */}
+          <div className="flex-1 relative">
+            <iframe
+              src={embedUrl(tmdbId)}
+              className="absolute inset-0 w-full h-full"
+              allowFullScreen
+              allow="autoplay; fullscreen; picture-in-picture"
+              referrerPolicy="origin"
+              title={movie.title}
             />
           </div>
         </div>
